@@ -1,15 +1,20 @@
+# utils/io.py
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-RAW = ROOT / 'data' / 'raw'
-PROC = ROOT / 'data' / 'processed'
-RAW.mkdir(parents=True, exist_ok=True)
-PROC.mkdir(parents=True, exist_ok=True)
+RAW = Path("data/raw")
+PROC = Path("data/processed")
+
+def load_df(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, index_col=0)
+    # explicit datetime index to avoid 1970/NaT artifacts
+    try:
+        df.index = pd.to_datetime(df.index, utc=False, errors="coerce")
+        df = df[~df.index.isna()]
+    except Exception:
+        pass
+    return df
 
 def save_df(df: pd.DataFrame, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=True)
-
-def load_df(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    df.to_csv(path)
