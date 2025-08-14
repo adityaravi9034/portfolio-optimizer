@@ -8,11 +8,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -r requirements.txt
+        with:
+          python-version: '3.11'
+      - run: |
+          pip install -r requirements.txt
+          pip install lightgbm
       - name: Run full pipeline
         run: |
           python -m pipeline.fetch_market --config configs/default.yaml
@@ -21,6 +25,8 @@ jobs:
           python -m pipeline.walkforward    --config configs/default.yaml
           python -m pipeline.stress         --config configs/default.yaml
           python -m pipeline.backtest       --config configs/default.yaml
+          python -m pipeline.trades         --config configs/default.yaml --notional 100000
+          python -m pipeline.attribution    --config configs/default.yaml
       - name: Commit artifacts
         run: |
           git config user.name "bot"

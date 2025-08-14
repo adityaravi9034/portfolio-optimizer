@@ -8,7 +8,7 @@ from utils.ticks import full_universe
 from models.mpt import optimize_mpt
 from models.risk_parity import risk_parity
 from models.factor import factor_target_weights
-from models.ml_xgb import train_xgb, preds_to_weights
+from models.ml_xgb import train_ml, preds_to_weights
 
 TRADING_DAYS = 252
 

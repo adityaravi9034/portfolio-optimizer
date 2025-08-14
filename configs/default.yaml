@@ -1,31 +1,57 @@
 universe:
-  equities:  ["SPY", "EFA", "IWM"]
-  bonds:     ["IEF", "TLT", "LQD"]
-  commodities: ["GLD", "USO"]
-  crypto: ["BTC-USD", "ETH-USD"]
-frequency: "1d"
+  equities:   ["SPY","EFA","IWM","QQQ","VNQ"]
+  bonds:      ["IEF","TLT","LQD","HYG","TIP"]
+  commodities:["GLD","USO","DBC"]
+  crypto:     ["BTC-USD","ETH-USD"]
+
+data:
+  use_alpha_vantage: true                    # uses AV when key is present; falls back to Yahoo
+  alpha_vantage_function: "TIME_SERIES_DAILY_ADJUSTED"
+  fred_series:
+    CPI:      "CPIAUCSL"
+    GDP:      "GDPC1"
+    UNRATE:   "UNRATE"
+    DGS3MO:   "DGS3MO"
+    DGS2:     "DGS2"
+    DGS10:    "DGS10"
+    PCE:      "PCE"
+    FedFunds: "FEDFUNDS"
+    VIX:      "VIXCLS"
+    LFPR:     "CIVPART"
+
 lookbacks:
-  returns_days: 252
+  returns_days: 60
   vol_days: 60
-  factor_reg_days: 252
-  rolling_train_days: 756
-  rebalance_days: 21
+  rolling_train_days: 756  # ~3y
+
+constraints:
+  max_weight: 0.30
+  long_only: true
+  cash_buffer: 0.02
+
 costs:
   commission_bps: 1.0
   slippage_bps: 2.0
-constraints:
-  long_only: true
-  min_weight: 0.00
-  max_weight: 0.30
-  cash_buffer: 0.02
-models:
-  - mpt
-  - risk_parity
-  - factor
-  - ml_xgb
-stress_periods:
-  - {name: "GFC_2008", start: "2007-07-01", end: "2009-06-30"}
-  - {name: "COVID_2020", start: "2020-02-01", end: "2020-06-30"}
-dashboard:
-  publish_weights_file: "data/processed/latest_weights.csv"
-  publish_metrics_file: "data/processed/latest_metrics.csv"
+
+ml:
+  model: "xgboost"          # "xgboost" | "lightgbm" | "random_forest"
+  xgb:
+    n_estimators: 400
+    max_depth: 5
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+    random_state: 42
+  lgbm:
+    n_estimators: 600
+    num_leaves: 31
+    learning_rate: 0.03
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 3
+    random_state: 42
+  rf:
+    n_estimators: 400
+    max_depth: 8
+    min_samples_leaf: 3
+    random_state: 42

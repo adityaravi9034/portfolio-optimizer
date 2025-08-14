@@ -1,4 +1,3 @@
-# utils/io.py
 from pathlib import Path
 import pandas as pd
 
@@ -7,7 +6,6 @@ PROC = Path("data/processed")
 
 def load_df(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, index_col=0)
-    # explicit datetime index to avoid 1970/NaT artifacts
     try:
         df.index = pd.to_datetime(df.index, utc=False, errors="coerce")
         df = df[~df.index.isna()]
