@@ -1,8 +1,8 @@
 universe:
   equities:  ["SPY", "EFA", "IWM"]
   bonds:     ["IEF", "TLT", "LQD"]
-  commodities:["GLD", "USO"]
-  crypto:    ["BTC-USD", "ETH-USD"]
+  commodities: ["GLD", "USO"]
+  crypto: ["BTC-USD", "ETH-USD"]
 frequency: "1d"
 lookbacks:
   returns_days: 252
