@@ -1,0 +1,31 @@
+universe:
+  equities:  ["SPY", "EFA", "IWM"]
+  bonds:     ["IEF", "TLT", "LQD"]
+  commodities:["GLD", "USO"]
+  crypto:    ["BTC-USD", "ETH-USD"]
+frequency: "1d"
+lookbacks:
+  returns_days: 252
+  vol_days: 60
+  factor_reg_days: 252
+  rolling_train_days: 756
+  rebalance_days: 21
+costs:
+  commission_bps: 1.0
+  slippage_bps: 2.0
+constraints:
+  long_only: true
+  min_weight: 0.00
+  max_weight: 0.30
+  cash_buffer: 0.02
+models:
+  - mpt
+  - risk_parity
+  - factor
+  - ml_xgb
+stress_periods:
+  - {name: "GFC_2008", start: "2007-07-01", end: "2009-06-30"}
+  - {name: "COVID_2020", start: "2020-02-01", end: "2020-06-30"}
+dashboard:
+  publish_weights_file: "data/processed/latest_weights.csv"
+  publish_metrics_file: "data/processed/latest_metrics.csv"

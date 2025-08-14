@@ -1,0 +1,17 @@
+pandas
+numpy
+yfinance
+ccxt
+fredapi
+cvxpy
+PyPortfolioOpt
+arch
+statsmodels
+scikit-learn
+xgboost
+backtrader
+plotly
+matplotlib
+streamlit
+pyyaml
+pydantic
