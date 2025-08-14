@@ -54,7 +54,7 @@ with tab3:
     wt = PROC / "weights_timeseries.csv"
     if wt.exists():
         wt_df = pd.read_csv(wt, index_col=0, parse_dates=True)
-        model = st.selectbox("Model", ["MPT","RiskParity","Factor","ML_XGB"], index=0)
+        model = st.selectbox("Model", ["MPT","RiskParity","Factor","ML_XGB"], index=0, key="model_backtest")
         # columns are assets; same for each model panel
         st.area_chart(wt_df)  # simple view: overall stacked weights
         st.caption("Tip: filter columns in the table below to inspect per-asset weights.")
@@ -84,7 +84,7 @@ with tab5:
             prev = pd.read_csv(prevp, index_col=0)
         else:
             prev = lw.copy()*0.0
-        model = st.selectbox("Model", lw.columns.to_list(), index=0)
+        model = st.selectbox("Model", lw.columns.to_list(), index=0, key="model_signals")
         delta = (lw[model] - prev[model]).to_frame("Δweight").sort_values("Δweight")
         st.dataframe(delta.style.format("{:+.2%}"))
         st.caption("Positive = buy, negative = sell. Apply your transaction cost model at execution.")
