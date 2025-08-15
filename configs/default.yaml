@@ -1,49 +1,85 @@
 universe:
-  equities:   ["SPY","EFA","IWM","QQQ","VNQ"]
-  bonds:      ["IEF","TLT","LQD","HYG","TIP"]
-  commodities:["GLD","USO","DBC"]
-  crypto:     ["BTC-USD","ETH-USD"]
-
+  equities:
+  - SPY
+  - QQQ
+  - EFA
+  - EEM
+  - IWM
+  - VNQ
+  - XLK
+  - XLF
+  - XLE
+  - XLV
+  - XLB
+  - XLY
+  - XLP
+  - IEF
+  - TLT
+  - LQD
+  - HYG
+  - SHY
+  - TIP
+  - BNDX
+  - GLD
+  - SLV
+  - DBC
+  - USO
+  - BTC-USD
+  - ETH-USD
+  bonds:
+  - IEF
+  - TLT
+  - LQD
+  - HYG
+  - SHY
+  - TIP
+  - BNDX
+  commodities:
+  - GLD
+  - SLV
+  - DBC
+  - USO
+  crypto:
+  - BTC-USD
+  - ETH-USD
 data:
-  use_alpha_vantage: true                    # uses AV when key is present; falls back to Yahoo
-  alpha_vantage_function: "TIME_SERIES_DAILY_ADJUSTED"
+  use_alpha_vantage: true
+  alpha_vantage_function: TIME_SERIES_DAILY_ADJUSTED
+  alpha_vantage_api_key: 7DUMV4CAH14RB8A0
+  fred_api_key: 02b2f75f08d83440e6143ad8f90c25ff
   fred_series:
-    CPI:      "CPIAUCSL"
-    GDP:      "GDPC1"
-    UNRATE:   "UNRATE"
-    DGS3MO:   "DGS3MO"
-    DGS2:     "DGS2"
-    DGS10:    "DGS10"
-    PCE:      "PCE"
-    FedFunds: "FEDFUNDS"
-    VIX:      "VIXCLS"
-    LFPR:     "CIVPART"
-
+    CPI: CPIAUCSL
+    GDP: GDPC1
+    UNRATE: UNRATE
+    DGS3MO: DGS3MO
+    DGS2: DGS2
+    DGS10: DGS10
+    PCE: PCE
+    FedFunds: FEDFUNDS
+    VIX: VIXCLS
+    LFPR: CIVPART
 lookbacks:
   returns_days: 60
   vol_days: 60
-  rolling_train_days: 756  # ~3y
-
+  rolling_train_days: 756
 constraints:
-  max_weight: 0.30
+  max_weight: 0.6
   long_only: true
-  cash_buffer: 0.02
-
+  cash_buffer: 0.07
 costs:
   commission_bps: 1.0
   slippage_bps: 2.0
-
 ml:
-  model: "xgboost"          # "xgboost" | "lightgbm" | "random_forest"
+  model: xgboost
   xgb:
-    n_estimators: 400
-    max_depth: 5
+    n_estimators: 500
+    max_depth: 6
     learning_rate: 0.05
     subsample: 0.9
     colsample_bytree: 0.9
     random_state: 42
   lgbm:
-    n_estimators: 600
+    n_estimators: 700
     num_leaves: 31
     learning_rate: 0.03
     feature_fraction: 0.8
@@ -51,7 +87,7 @@ ml:
     bagging_freq: 3
     random_state: 42
   rf:
-    n_estimators: 400
-    max_depth: 8
+    n_estimators: 500
+    max_depth: 10
     min_samples_leaf: 3
     random_state: 42
