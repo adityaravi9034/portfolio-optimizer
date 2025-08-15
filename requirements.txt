@@ -15,3 +15,6 @@ matplotlib
 streamlit
 pyyaml
 pydantic
+fastapi
+uvicorn[standard]
+pydantic>=2

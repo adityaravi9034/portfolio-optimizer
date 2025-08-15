@@ -1,120 +1,149 @@
-import argparse, os, sys, time, yaml
+# pipeline/fetch_market.py
+import argparse
+import sys
+import time
 from pathlib import Path
+import os
+import yaml
 import pandas as pd
-import yfinance as yf
+import numpy as np
 import requests
-from fredapi import Fred
-from utils.io import RAW, save_df
+import yfinance as yf
 
+# ======================================================================
+# ENVIRONMENT SETUP
+# ======================================================================
+ROOT = Path(__file__).resolve().parents[1]
+
+def load_environment():
+    """Load environment variables with robust fallback"""
+    env_path = ROOT / '.env'
+    if env_path.exists():
+        print(f"[ENV] Loading .env from {env_path}")
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    try:
+                        key, value = line.split('=', 1)
+                        os.environ[key.strip()] = value.strip().strip('"\'')
+                    except ValueError:
+                        continue
+
+    FRED_API_KEY = os.getenv("FRED_API_KEY")
+    ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
+    
+    print("\n[ENV] API Key Status:")
+    print(f"FRED_API_KEY: {'Set' if FRED_API_KEY else 'Not set'}")
+    print(f"ALPHA_VANTAGE_API_KEY: {'Set' if ALPHA_VANTAGE_API_KEY else 'Not set'}")
+    
+    return FRED_API_KEY, ALPHA_VANTAGE_API_KEY
+
+FRED_API_KEY, _ = load_environment()  # We ignore Alpha Vantage key since we're not using it
+
+# ======================================================================
+# DATA FETCHING FUNCTIONS
+# ======================================================================
 def _drop_tz(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    try:
-        return idx.tz_localize(None)
-    except Exception:
-        return pd.DatetimeIndex(idx)
+    """Remove timezone from datetime index."""
+    return idx.tz_localize(None) if idx.tz else idx
 
-def fetch_yahoo(symbol: str, period="10y") -> pd.Series:
-    for k in range(3):
+def fetch_yahoo(symbol: str, period: str = "10y") -> pd.Series:
+    """Fetch data from Yahoo Finance with retries."""
+    for attempt in range(3):
         try:
-            h = yf.Ticker(symbol).history(period=period, auto_adjust=True)
-            if "Close" in h and not h["Close"].empty:
-                s = h["Close"].rename(symbol)
-                s.index = _drop_tz(pd.DatetimeIndex(s.index))
+            print(f"[YAHOO] Fetching {symbol} (attempt {attempt + 1})")
+            data = yf.Ticker(symbol).history(period=period, auto_adjust=True)
+            if not data.empty and 'Close' in data:
+                s = data['Close'].rename(symbol)
+                s.index = _drop_tz(s.index)
                 return s
         except Exception as e:
-            if k == 2:
-                print(f"[WARN] yfinance {symbol} failed: {e}", file=sys.stderr)
-        time.sleep(0.4)
-    return pd.Series(name=number, dtype=float)
+            if attempt == 2:
+                print(f"[YAHOO ERROR] Failed to fetch {symbol}: {e}")
+            time.sleep(1 * (attempt + 1))
+    return pd.Series(name=symbol, dtype=float)
 
-def fetch_alpha_vantage(symbol: str, fn="TIME_SERIES_DAILY_ADJUSTED") -> pd.Series:
-    key = os.getenv("ALPHA_VANTAGE_KEY")
-    if not key:
-        return pd.Series(name=symbol, dtype=float)
-    url = "https://www.alphavantage.co/query"
-    params = {"function": fn, "symbol": symbol, "apikey": key, "outputsize": "full"}
-    try:
-        r = requests.get(url, params=params, timeout=30)
-        r.raise_for_status()
-        js = r.json()
-        ts = js.get("Time Series (Daily)") or js.get("Time Series FX (Daily)") or {}
-        if not ts:
-            return pd.Series(name=symbol, dtype=float)
-        df = (pd.DataFrame(ts).T
-              .rename(columns=lambda c: c.split(". ")[-1].lower())
-              .sort_index())
-        s = pd.to_numeric(df["adjusted close"] if "adjusted close" in df else df["close"], errors="coerce")
-        s.index = pd.to_datetime(s.index)
-        s.index = _drop_tz(pd.DatetimeIndex(s.index))
-        s.name = symbol
-        return s
-    except Exception as e:
-        print(f"[WARN] alpha_vantage {symbol} failed: {e}", file=sys.stderr)
-        return pd.Series(name=symbol, dtype=float)
-
-def fetch_prices(symbols, use_alpha_vantage: bool, av_fn: str):
+def fetch_prices(symbols: list[str]) -> pd.DataFrame:
+    """Fetch all prices using Yahoo Finance."""
     series = []
-    for s in symbols:
-        if use_alpha_vantage and os.getenv("ALPHA_VANTAGE_KEY") and not s.endswith("-USD"):
-            ser = fetch_alpha_vantage(s, av_fn)
-            if ser.empty:
-                ser = fetch_yahoo(s)
-        else:
-            ser = fetch_yahoo(s)
-        series.append(ser)
-        time.sleep(0.2)
+    for symbol in symbols:
+        series.append(fetch_yahoo(symbol))
+        time.sleep(0.2)  # Be polite to Yahoo's servers
     df = pd.concat(series, axis=1)
     if not df.empty:
         df = df.sort_index()
-        b = pd.bdate_range(df.index.min(), df.index.max())
-        df = df.reindex(b).ffill()
+        bdays = pd.bdate_range(df.index.min(), df.index.max())
+        df = df.reindex(bdays).ffill()
     return df
 
-def fetch_fred(fred_map: dict):
-    key = os.getenv("FRED_API_KEY")
-    if not key:
-        print("[ERROR] FRED_API_KEY not set.", file=sys.stderr); sys.exit(3)
-    fred = Fred(api_key=key)
-    data = {}
-    for name, code in fred_map.items():
-        try:
-            ser = fred.get_series(code)
-            s = pd.Series(ser, name=name)
-            data[name] = s
-        except Exception as e:
-            print(f"[WARN] FRED {name}/{code} failed: {e}", file=sys.stderr)
-    if not data:
-        return pd.DataFrame()
-    df = pd.DataFrame(data)
-    df.index = pd.to_datetime(df.index)
-    df.index = _drop_tz(pd.DatetimeIndex(df.index))
-    df = df.sort_index().ffill()
-    return df
+def fetch_fred(series_map: dict[str, str], index: pd.DatetimeIndex) -> pd.DataFrame:
+    """Fetch FRED economic data."""
+    if not FRED_API_KEY or not series_map:
+        return pd.DataFrame(index=index)
+    
+    try:
+        from fredapi import Fred
+        fred = Fred(api_key=FRED_API_KEY)
+        data = {}
+        for name, code in series_map.items():
+            try:
+                print(f"[FRED] Fetching {name} ({code})")
+                data[name] = fred.get_series(code)
+            except Exception as e:
+                print(f"[FRED ERROR] Failed to fetch {name}: {e}")
+        
+        if data:
+            df = pd.DataFrame(data)
+            df.index = _drop_tz(pd.to_datetime(df.index))
+            return df.reindex(index, method='ffill')
+    except Exception as e:
+        print(f"[FRED ERROR] API failure: {e}")
+    
+    return pd.DataFrame(index=index)
 
-def main(cfg):
-    uni = []
-    for k in ("equities","bonds","commodities","crypto"):
-        uni.extend(cfg["universe"].get(k, []))
-    if not uni:
-        print("[ERROR] Empty universe", file=sys.stderr); sys.exit(1)
-
-    use_av = bool(cfg.get("data", {}).get("use_alpha_vantage", False))
-    av_fn  = cfg.get("data", {}).get("alpha_vantage_function", "TIME_SERIES_DAILY_ADJUSTED")
-
-    prices = fetch_prices(uni, use_av, av_fn)
+# ======================================================================
+# MAIN FUNCTION
+# ======================================================================
+def main(cfg: dict):
+    # Load tickers from config
+    tickers = []
+    for asset_class in ["equities", "bonds", "commodities", "crypto"]:
+        tickers.extend(cfg.get("universe", {}).get(asset_class, []))
+    
+    if not tickers:
+        from utils.ticks import full_universe
+        tickers = full_universe()
+    
+    print(f"\n[MAIN] Fetching {len(tickers)} assets")
+    
+    # Fetch prices
+    prices = fetch_prices(tickers)
     if prices.empty:
-        print("[ERROR] No price data", file=sys.stderr); sys.exit(2)
+        print("[ERROR] No price data retrieved")
+        sys.exit(1)
+    
+    # Save prices
+    from utils.io import RAW, save_df
     save_df(prices, RAW / "prices.csv")
-    print("Saved prices:", prices.shape, "->", RAW / "prices.csv")
-
-    fred_map = cfg.get("data", {}).get("fred_series", {})
-    fred = fetch_fred(fred_map)
-    fred = fred.reindex(prices.index, method="ffill")
-    save_df(fred, RAW / "macro_fred.csv")
-    print("Saved FRED macro:", fred.shape, "->", RAW / "macro_fred.csv")
+    print(f"[SAVED] Prices: {prices.shape}")
+    
+    # Fetch FRED data
+    fred_data = fetch_fred(
+        cfg.get("data", {}).get("fred_series", {}),
+        prices.index
+    )
+    save_df(fred_data, RAW / "macro_fred.csv")
+    print(f"[SAVED] FRED Data: {fred_data.shape if not fred_data.empty else 'Empty'}")
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True)
-    args = ap.parse_args()
-    cfg = yaml.safe_load(Path(args.config).read_text())
-    main(cfg)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    args = parser.parse_args()
+    
+    try:
+        cfg = yaml.safe_load(Path(args.config).read_text())
+        main(cfg)
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        sys.exit(1)

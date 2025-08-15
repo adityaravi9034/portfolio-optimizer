@@ -1,50 +1,82 @@
 # services/orchestrator.py
+import subprocess, sys, json, time
 from pathlib import Path
-import traceback
+from datetime import datetime, timezone
 
-# services/orchestrator.py
-import streamlit as st
+ROOT = Path(__file__).resolve().parents[1]
+PY = str((ROOT / ".venv/bin/python").resolve()) if (ROOT / ".venv/bin/python").exists() else sys.executable
+CFG = str((ROOT / "configs/default.yaml").resolve())
 
-def run_stage(func, label):
-    """Run a pipeline stage with a progress message."""
+DATA_DIR = ROOT / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+STATUS_PATH = DATA_DIR / "run_status.json"
+
+STAGES = [
+    ("fetch_market",     ["-m", "pipeline.fetch_market",    "--config", CFG]),
+    ("build_features",   ["-m", "pipeline.build_features",  "--config", CFG]),
+    ("optimize",         ["-m", "pipeline.optimize",        "--config", CFG]),
+    ("walkforward",      ["-m", "pipeline.walkforward",     "--config", CFG]),
+    ("stress",           ["-m", "pipeline.stress",          "--config", CFG]),
+    ("backtest",         ["-m", "pipeline.backtest",        "--config", CFG]),
+    ("attribution",      ["-m", "pipeline.attribution",     "--config", CFG]),
+]
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+def _read_status():
+    if not STATUS_PATH.exists():
+        return {"state":"idle","stage":None,"progress":0,"started_at":None,"updated_at":_now_iso()}
     try:
-        with st.spinner(f"Running {label}..."):
-            func()
-        st.success(f"{label} completed successfully!")
-    except Exception as e:
-        st.error(f"Error running {label}: {e}")
+        return json.loads(STATUS_PATH.read_text())
+    except Exception:
+        return {"state":"idle","stage":None,"progress":0,"started_at":None,"updated_at":_now_iso()}
+
+def _write_status(d):
+    d["updated_at"] = _now_iso()
+    STATUS_PATH.write_text(json.dumps(d, indent=2))
+
+def _set_state(state:str, stage:str|None, progress:int):
+    st = _read_status()
+    st["state"] = state
+    st["stage"] = stage
+    st["progress"] = progress
+    if state == "running" and st.get("started_at") is None:
+        st["started_at"] = _now_iso()
+    if state in ("idle","error","done"):
+        # keep started_at for reference; add finished_at on done/error
+        st["finished_at"] = _now_iso()
+    _write_status(st)
+
+def run_stage(cmd_args:list[str], stage_name:str):
+    _set_state("running", stage_name, progress=0)
+    try:
+        subprocess.run([PY, *cmd_args], cwd=str(ROOT), check=True)
+        _set_state("running", stage_name, progress=100)
+    except subprocess.CalledProcessError as e:
+        st = _read_status()
+        st["state"] = "error"
+        st["error"] = f"Stage '{stage_name}' failed: {e}"
+        _write_status(st)
         raise
 
-def _cfg_path() -> str:
-    return str(Path("configs/default.yaml").resolve())
+# Public helpers used by the UI (one-stage calls)
+def run_fetch():        run_stage(STAGES[0][1], STAGES[0][0])
+def run_features():     run_stage(STAGES[1][1], STAGES[1][0])
+def run_optimize():     run_stage(STAGES[2][1], STAGES[2][0])
+def run_walkforward():  run_stage(STAGES[3][1], STAGES[3][0])
+def run_stress():       run_stage(STAGES[4][1], STAGES[4][0])
+def run_backtest():     run_stage(STAGES[5][1], STAGES[5][0])
+def run_attribution():  run_stage(STAGES[6][1], STAGES[6][0])
 
-def run_fetch():      # expose as tiny wrappers so Streamlit can call
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pipeline.fetch_market", "--config", _cfg_path()])
-
-def run_features():
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pipeline.build_features", "--config", _cfg_path()])
-
-def run_optimize():
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pipeline.optimize", "--config", _cfg_path()])
-
-def run_walkforward():
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pipeline.walkforward", "--config", _cfg_path()])
-
-def run_stress():
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pipeline.stress", "--config", _cfg_path()])
-
-def run_backtest():
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pipeline.backtest", "--config", _cfg_path()])
-
-def run_attribution():
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pipeline.attribution", "--config", _cfg_path()])
-
+# Full pipeline
 def run_all():
-    run_fetch(); run_features(); run_optimize(); run_walkforward(); run_stress(); run_backtest(); run_attribution()
+    total = len(STAGES)
+    _set_state("running", None, progress=0)
+    for i, (name, args) in enumerate(STAGES, start=1):
+        # mark which stage is running and approximate progress
+        pct = int((i-1)/total * 100)
+        _set_state("running", name, pct)
+        subprocess.run([PY, *args], cwd=str(ROOT), check=True)
+        _set_state("running", name, int(i/total*100))
+    _set_state("done", None, 100)
