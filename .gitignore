@@ -1,10 +1,22 @@
-
+# --- Secrets ---
 .env
 
-data/raw/*
-data/processed/*
-!data/processed/.gitkeep
-# Python
+# --- Data ---
+# Ignore everything in data by default…
+data/*
+
+# …but track ALL CSVs anywhere under data
+!data/**/*.csv
+
+# Keep placeholder files so empty dirs survive
+!data/**/.gitkeep
+!data/.gitkeep
+
+# Exclude local-only/sensitive dirs entirely (even if CSVs inside)
+data/paper_trading/
+data/reports/
+
+# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
@@ -12,24 +24,11 @@ __pycache__/
 *.db
 *.sqlite3
 
-# Virtual environment
+# --- Virtual env ---
 .venv/
 
-# Streamlit
+# --- App/Cache/OS ---
 .streamlit/
-
-# Cache
 *.log
 *.tmp
-
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.db
-*.sqlite3
-*.log
 .DS_Store
-.env
-data/paper_trading/
