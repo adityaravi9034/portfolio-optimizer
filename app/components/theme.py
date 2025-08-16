@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # app/components/theme.py
 import streamlit as st
 

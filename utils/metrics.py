@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # utils/metrics.py
 from __future__ import annotations
 import numpy as np

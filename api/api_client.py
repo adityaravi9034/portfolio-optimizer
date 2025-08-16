@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # app/api_client.py
 import os
 import requests

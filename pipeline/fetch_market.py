@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # pipeline/fetch_market.py
 import argparse
 import sys

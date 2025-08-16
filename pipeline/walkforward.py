@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # pipeline/walkforward.py
 from __future__ import annotations
 

@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 from __future__ import annotations
 import requests
 import streamlit as st

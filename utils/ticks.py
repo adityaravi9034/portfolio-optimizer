@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 from typing import List
 
 def full_universe(cfg) -> List[str]:

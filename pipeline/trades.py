@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # pipeline/trades.py
 import argparse
 import yaml

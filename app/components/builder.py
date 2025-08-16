@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # app/components/builder.py
 from __future__ import annotations
 from dataclasses import dataclass, asdict

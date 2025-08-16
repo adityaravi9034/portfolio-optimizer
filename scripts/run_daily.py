@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 import argparse, subprocess, sys
 
 if __name__ == '__main__':

@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 from __future__ import annotations
 from typing import List, Dict, Tuple
 import pandas as pd

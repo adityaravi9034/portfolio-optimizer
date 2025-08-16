@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # api/ml.py
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException

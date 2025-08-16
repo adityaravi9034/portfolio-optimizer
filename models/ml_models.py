@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # models/ml_models.py
 from __future__ import annotations
 from typing import Any, Dict

@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 import argparse, yaml
 from pathlib import Path
 import numpy as np, pandas as pd

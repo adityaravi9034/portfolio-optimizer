@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # app/components/controls.py
 from __future__ import annotations
 

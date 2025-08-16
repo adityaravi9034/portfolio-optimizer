@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 import numpy as np
 
 def risk_parity(Sigma, tol=1e-6, iters=5000, cash_buffer=0.02):

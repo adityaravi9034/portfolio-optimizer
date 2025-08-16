@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 import numpy as np
 
 def project_weights(w, long_only=True, min_w=0.0, max_w=0.3, cash_buffer=0.02):

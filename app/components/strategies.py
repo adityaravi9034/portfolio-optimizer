@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 # app/components/strategies.py
 from __future__ import annotations
 from pathlib import Path

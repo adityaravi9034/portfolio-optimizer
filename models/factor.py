@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 import numpy as np
 from numpy.linalg import lstsq
 

@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Aditya Ravi
+# All rights reserved.
 from __future__ import annotations
 import streamlit as st, yaml
 from pathlib import Path
