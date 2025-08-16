@@ -19,4 +19,4 @@ fastapi
 uvicorn[standard]
 pydantic>=2
 python-dotenv==1.1.1
-apscheduler
+apscheduler==3.10.4
