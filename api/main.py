@@ -463,3 +463,51 @@ def get_metrics():
 def get_equity():
     rows = _read_csv(DATA_PROC / "equity_curves.csv", parse_dates=True)
     return {"ok": True, "equity": rows}
+
+# api/main.py (only the relevant additions/changes)
+
+from api.auth import router as auth_router, current_user
+app.include_router(auth_router)
+
+# strategies router changes
+from fastapi import Depends
+
+@router_strats.get("")
+def list_strategies(user=Depends(current_user)):
+    with get_conn() as con:
+        rows = con.execute("""
+            SELECT name, universe, max_weight, long_only, cash_buffer, created_at, updated_at
+            FROM strategies
+            WHERE user_id = ?
+            ORDER BY updated_at DESC
+        """, (user["id"],)).fetchall()
+        # ... same mapping as before ...
+
+@router_strats.get("/{name}")
+def get_strategy(name: str, user=Depends(current_user)):
+    with get_conn() as con:
+        r = con.execute("SELECT * FROM strategies WHERE user_id=? AND name=?", (user["id"], name)).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Not found")
+        # ... return item ...
+
+@router_strats.post("")
+def upsert_strategy(s: StrategyIn, user=Depends(current_user)):
+    with get_conn() as con:
+        con.execute("""
+            INSERT INTO strategies(user_id, name, universe, max_weight, long_only, cash_buffer)
+            VALUES(?,?,?,?,?,?)
+            ON CONFLICT(user_id, name) DO UPDATE SET
+              universe=excluded.universe,
+              max_weight=excluded.max_weight,
+              long_only=excluded.long_only,
+              cash_buffer=excluded.cash_buffer,
+              updated_at=CURRENT_TIMESTAMP
+        """, (user["id"], s.name, ",".join(s.universe), s.max_weight, int(s.long_only), s.cash_buffer))
+    return {"ok": True}
+
+@router_strats.delete("/{name}")
+def delete_strategy(name: str, user=Depends(current_user)):
+    with get_conn() as con:
+        con.execute("DELETE FROM strategies WHERE user_id=? AND name=?", (user["id"], name))
+    return {"ok": True}

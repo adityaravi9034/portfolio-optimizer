@@ -4,3 +4,20 @@
 data/raw/*
 data/processed/*
 !data/processed/.gitkeep
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Virtual environment
+.venv/
+
+# Streamlit
+.streamlit/
+
+# Cache
+*.log
+*.tmp

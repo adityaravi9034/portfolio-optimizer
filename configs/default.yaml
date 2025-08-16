@@ -27,6 +27,9 @@ universe:
   - BTC-USD
   - ETH-USD
 constraints:
-  max_weight: 0.3
+  max_weight: 0.55
   long_only: true
-  cash_buffer: 0.0
+  cash_buffer: 0.1
+costs:
+  commission_bps: 14.0
+  slippage_bps: 8.5

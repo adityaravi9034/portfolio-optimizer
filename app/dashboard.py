@@ -1,117 +1,69 @@
-# ---- app/dashboard.py (header + sidebar) ----
+# ---------- app/dashboard.py (CLEAN HEADER + SIDEBAR) ----------
 import os
 import sys
 import time
+import subprocess
 from pathlib import Path
 
 import pandas as pd
 import requests
 import streamlit as st
+import yaml
 
 # One-time page config
 st.set_page_config(page_title="Portfolio Optimizer", layout="wide")
+# app/dashboard.py
+import os, sys, time, requests
+from pathlib import Path
+import streamlit as st
+import pandas as pd
 
-# --- Project root on path so we can import `utils.*` when running via Streamlit ---
+st.set_page_config(page_title="Portfolio Optimizer", layout="wide")
+
+# --- project root for local imports ---
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-# --- API mode toggle & client import (robust) ---
+PROC = ROOT / "data" / "processed"
 API_BASE = os.getenv("OPTIM_API_URL", "http://127.0.0.1:8000").rstrip("/")
 USE_API = bool(os.getenv("OPTIM_API_URL"))
+
+
+
+# Core paths
+CFG_PATH = ROOT / "configs" / "default.yaml"
+PROC     = ROOT / "data" / "processed"
+
+# API mode toggle
+API_BASE = os.getenv("OPTIM_API_URL", "").rstrip("/")
+USE_API  = bool(API_BASE)
+
+# Optional API client (only if API mode). If import fails, drop to local mode.
 api_get = api_post = None
-
 if USE_API:
     try:
-        # preferred location
         from api.api_client import get as api_get, post as api_post  # type: ignore[import]
-    except ModuleNotFoundError:
-        # try again with explicit root (already added above)
-        try:
-            from api.api_client import get as api_get, post as api_post  # type: ignore[import]
-        except ModuleNotFoundError:
-            USE_API = False
-            api_get = api_post = None
-
-# --- Local paths (CSV fallback) ---
-PROC = ROOT / "data" / "processed"
-
-# ---- Sidebar: background run + live status (app/dashboard.py) ----
-import os, time, requests, streamlit as st
-
-API_BASE = os.getenv("OPTIM_API_URL", "http://127.0.0.1:8000").rstrip("/")
-
-with st.sidebar:
-    st.markdown("### 🚀 Run Pipeline")
-    if st.button("Run All (background)"):
-        try:
-            r = requests.post(f"{API_BASE}/run/queue", timeout=5)
-            r.raise_for_status()
-            job_id = r.json().get("job_id")
-            st.session_state["job_id"] = job_id
-            st.success(f"Queued job: {job_id}")
-        except Exception as e:
-            st.error(f"Queue failed: {e}")
-
-    # Live status panel
-    job_id = st.session_state.get("job_id")
-    if job_id:
-        try:
-            resp = requests.get(f"{API_BASE}/run/status", timeout=5)
-            status = resp.json().get("status", {})
-        except Exception as e:
-            status = {}
-            st.error(f"Status fetch failed: {e}")
-
-        state = status.get("state", "—")
-        stage = status.get("stage", "—")
-        prog = int(status.get("progress", 0))
-        st.write(f"**State:** {state} | **Stage:** {stage}")
-        st.progress(prog / 100)
-
-        c1, c2 = st.columns(2)
-        c1.metric("Started", status.get("started_at", "—"))
-        c2.metric("Updated", status.get("updated_at", "—"))
-
-        err = status.get("error")
-        if err and state == "error":
-            st.error(err)
-
-        # Auto-refresh while running or queued
-        if state in {"running", "queued"}:
-            time.sleep(2)
-            st.rerun()
-
-
-def api_ok() -> bool:
-    if not USE_API:
-        return False
-    try:
-        j = api_get("/health")
-        return bool(j.get("ok"))
     except Exception:
-        return False
+        USE_API = False
+        API_BASE = ""
+        api_get = api_post = None
 
-if USE_API:
-    st.sidebar.success("API: online ✅" if api_ok() else "API: offline ❌")
+# -------- Local subprocess helpers (used when not in API mode) --------
+def _py(*mod_and_args: str) -> list[str]:
+    return [sys.executable, "-m", *mod_and_args]
 
-
-
+def _run_local(mod: str, *extra_args: str):
+    """Run a pipeline module locally (non-API mode)."""
+    cmd = _py(mod, "--config", str(CFG_PATH), *extra_args)
+    subprocess.check_call(cmd, cwd=str(ROOT))
 
 # ---------- Cached CSV loader ----------
 @st.cache_data
 def cached_load_df(path: str, *, ts: bool = False, multi: bool = False, index_col: int = 0):
-    """
-    Cached CSV loader.
-      - ts=True       → parse index as datetime (robust).
-      - multi=True    → try reading columns as a 2-level MultiIndex.
-      - index_col     → index column (default 0).
-    Returns None if file is missing.
-    """
     p = Path(path)
     if not p.exists():
         return None
-
     if multi:
         try:
             df = pd.read_csv(p, header=[0, 1], index_col=index_col)
@@ -132,132 +84,263 @@ def cached_load_df(path: str, *, ts: bool = False, multi: bool = False, index_co
         df = df[~df.index.isna()]
     return df
 
-# ---------- Page title & tabs (define ONCE) ----------
-st.title("📈 Multi-Asset Portfolio Optimizer (Free Tier)")
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["Overview", "Models", "Backtest", "Stress", "Signals", "Attribution"]
-)
-
-
-# ----- Sidebar: pipeline controls with live status -----
-import time, requests, os
-import streamlit as st
-
-API_BASE = os.getenv("OPTIM_API_URL", "").rstrip("/")
-USE_API = bool(API_BASE)
-
-def poll_status(msg_placeholder):
-    if not USE_API:
-        return
-    for _ in range(300):  # up to ~60s if sleep(0.2); adjust as you like
+# ---------- Sidebar: background run + live status ----------
+def _poll_status(panel):
+    """Poll API status panel while job runs."""
+    for _ in range(300):  # ~60s if sleep(0.2)
         try:
             r = requests.get(f"{API_BASE}/run/status", timeout=5)
             j = r.json().get("status", {})
             state = j.get("state", "idle")
             stage = j.get("stage")
-            progress = j.get("progress", 0)
-            msg_placeholder.write(f"**State:** {state} | **Stage:** {stage} | **Progress:** {progress}%")
-            if state in ("done","idle","error"):
+            progress = int(j.get("progress", 0))
+            panel.write(f"**State:** {state} | **Stage:** {stage} | **Progress:** {progress}%")
+            if state in {"done", "idle", "error"}:
                 break
         except Exception:
-            msg_placeholder.write("Waiting for status…")
+            panel.write("Waiting for status…")
         time.sleep(0.2)
 
-st.sidebar.markdown("### ⚙️ Pipeline controls")
-col_a, col_b = st.sidebar.columns(2)
-with col_a:
-    if st.button("Run All", use_container_width=True):
-        if USE_API:
-            st.toast("Starting full pipeline…", icon="⏳")
-            requests.post(f"{API_BASE}/run/all", timeout=600)
-            with st.spinner("Running full pipeline…"):
-                box = st.empty()
-                poll_status(box)
-            st.success("Pipeline finished (or stopped).")
-            st.rerun()
-        else:
-            st.warning("Set OPTIM_API_URL to use API mode.")
+# ---- Sidebar (single source of truth) ----
+import yaml
+import os, sys, time
+from pathlib import Path
+import requests, yaml, streamlit as st
+# ---------- Sidebar (single source of truth) ----------
+# ─────────────────────────────
+# ---------------------------
+# Sidebar: controls + settings
+# ---------------------------
 
-with col_b:
-    if st.button("Refresh Data", use_container_width=True):
-        if USE_API:
-            st.toast("Fetching data + features…", icon="🔄")
-            requests.post(f"{API_BASE}/run/fetch", timeout=5)
-            requests.post(f"{API_BASE}/run/features", timeout=5)
-            with st.spinner("Refreshing…"):
-                box = st.empty()
-                poll_status(box)
-            st.success("Refresh complete.")
-            st.rerun()
-        else:
-            st.warning("Set OPTIM_API_URL to use API mode.")
+# ————— helpers —————
+def _poll_status_once():
+    if not USE_API:
+        return {}
+    try:
+        r = requests.get(f"{API_BASE}/run/status", timeout=5)
+        return r.json().get("status", {})
+    except Exception:
+        return {}
 
-with st.sidebar.expander("Run a specific stage"):
-    def run_single(path, label):
-        if USE_API:
-            requests.post(f"{API_BASE}{path}", timeout=5)
-            with st.spinner(f"Running {label}…"):
-                box = st.empty()
-                poll_status(box)
-            st.success(f"{label} complete.")
-            st.rerun()
-        else:
-            st.warning("Set OPTIM_API_URL to use API mode.")
+def _post_stage(path: str, label: str, timeout: int = 600):
+    if not USE_API:
+        st.warning("API mode is off. Set OPTIM_API_URL and restart.")
+        return
+    with st.spinner(f"Running {label}…"):
+        requests.post(f"{API_BASE}{path}", timeout=timeout)
+    st.toast(f"{label} stage kicked off", icon="✅")
 
-    if st.button("Optimize → Weights"):
-        run_single("/run/optimize", "Optimize")
-    if st.button("Walkforward"):
-        run_single("/run/walkforward", "Walkforward")
-    if st.button("Backtest"):
-        run_single("/run/backtest", "Backtest")
-    if st.button("Stress"):
-        run_single("/run/stress", "Stress")
-    if st.button("Attribution"):
-        run_single("/run/attribution", "Attribution")
+# ————— UI —————
+with st.sidebar:
 
-# ---- Strategy Settings (works in both modes) ----
-st.sidebar.markdown("### 🧰 Strategy settings")
-with st.sidebar.form("strategy_form"):
-    # Universe
-    tickers_default = (
+    # ====== Run pipeline ======
+    st.markdown("### 🚀 Run pipeline")
+
+    col_run, col_refresh = st.columns(2)
+    with col_run:
+        if st.button("Run All", use_container_width=True, key="btn_run_all"):
+            if USE_API:
+                with st.spinner("Running full pipeline…"):
+                    # generous timeout because it runs all stages
+                    requests.post(f"{API_BASE}/run/all", timeout=1800)
+            else:
+                st.warning("API mode is off. Set OPTIM_API_URL and restart.")
+    with col_refresh:
+        if st.button("Refresh Data", use_container_width=True, key="btn_refresh"):
+            if USE_API:
+                with st.spinner("Fetching market data + building features…"):
+                    requests.post(f"{API_BASE}/run/fetch", timeout=300)
+                    requests.post(f"{API_BASE}/run/features", timeout=600)
+            else:
+                st.warning("API mode is off. Set OPTIM_API_URL and restart.")
+
+    # live status
+    status = _poll_status_once() if USE_API else {}
+    c1, c2 = st.columns(2)
+    c1.metric("Started", status.get("started_at", "—"))
+    c2.metric("Updated", status.get("updated_at", "—"))
+    st.progress(int(status.get("progress", 0)) / 100 if USE_API else 0.0)
+    st.caption(
+        f"State: **{status.get('state','idle')}** | Stage: **{status.get('stage','—')}**"
+        if USE_API else "API mode is off. Set `OPTIM_API_URL` for background runs."
+    )
+
+    # ====== Per-stage controls ======
+    with st.expander("Run a specific stage", expanded=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Fetch", use_container_width=True, key="stage_fetch"):
+                _post_stage("/run/fetch", "Fetch", timeout=300)
+            if st.button("Optimize", use_container_width=True, key="stage_opt"):
+                _post_stage("/run/optimize", "Optimize", timeout=900)
+            if st.button("Stress", use_container_width=True, key="stage_stress"):
+                _post_stage("/run/stress", "Stress", timeout=600)
+        with c2:
+            if st.button("Features", use_container_width=True, key="stage_features"):
+                _post_stage("/run/features", "Features", timeout=600)
+            if st.button("Walkforward", use_container_width=True, key="stage_wf"):
+                _post_stage("/run/walkforward", "Walkforward", timeout=1200)
+            if st.button("Backtest", use_container_width=True, key="stage_bt"):
+                _post_stage("/run/backtest", "Backtest", timeout=900)
+
+        if st.button("Attribution", use_container_width=True, key="stage_attr"):
+            _post_stage("/run/attribution", "Attribution", timeout=600)
+
+    st.markdown("---")
+
+    # ====== Strategy settings (single form, unique key) ======
+    st.markdown("### 🧰 Strategy settings")
+
+    # load current YAML to pre-fill
+    cfg = {}
+    if CFG_PATH.exists():
+        try:
+            cfg = yaml.safe_load(CFG_PATH.read_text()) or {}
+        except Exception:
+            cfg = {}
+    cur_uni = (cfg.get("universe", {}) or {}).get("equities", [])
+    cur_cons = (cfg.get("constraints", {}) or {})
+    cur_costs = (cfg.get("costs", {}) or {})
+
+    default_universe = (
         "SPY,QQQ,EFA,EEM,IWM,VNQ,XLK,XLF,XLE,XLV,XLB,XLY,XLP,"
         "IEF,TLT,LQD,HYG,SHY,TIP,BNDX,GLD,SLV,DBC,USO,BTC-USD,ETH-USD"
     )
-    tickers_str = st.text_area(
-        "Universe (comma-separated tickers)",
-        value=tickers_default,
-        height=100,
-    )
 
-    # Constraints
-    max_w = st.slider("Max weight per asset", 0.05, 1.0, 0.30, 0.05)
-    long_only = st.checkbox("Long only", True)
-    cash_buffer = st.slider("Cash buffer", 0.0, 0.20, 0.00, 0.01)
+    # form (single key, no session_state writes to same keys)
+    with st.form("strategy_form_main"):
+        tickers_text = st.text_area(
+            "Universe (comma-separated)",
+            value=(",".join(cur_uni) if cur_uni else default_universe),
+            height=120,
+            key="universe_text_input",
+        )
+        max_w = st.slider(
+            "Max weight per asset",
+            0.05, 1.00,
+            float(cur_cons.get("max_weight", 0.30)),
+            0.05,
+            key="max_w_slider",
+        )
+        long_only = st.checkbox(
+            "Long only",
+            bool(cur_cons.get("long_only", True)),
+            key="long_only_chk",
+        )
+        cash_buffer = st.slider(
+            "Cash buffer",
+            0.00, 0.20,
+            float(cur_cons.get("cash_buffer", 0.00)),
+            0.01,
+            key="cash_buf_slider",
+        )
 
-    submitted = st.form_submit_button("Save Settings")
-    if submitted:
-        u = [s.strip() for s in tickers_str.split(",") if s.strip()]
-        if USE_API:
-            # save to server config
-            payload = {
-                "universe": u,
-                "max_weight": float(max_w),
-                "long_only": bool(long_only),
-                "cash_buffer": float(cash_buffer),
-            }
-            api_post("/config", payload)
-            st.success("Saved to server config. Re-run Optimize / Walkforward.")
-        else:
-            # save locally to YAML
-            cfg = yaml.safe_load(CFG_PATH.read_text()) if CFG_PATH.exists() else {}
-            cfg.setdefault("universe", {})
-            cfg["universe"]["equities"] = u
-            cfg.setdefault("constraints", {})
-            cfg["constraints"]["max_weight"] = float(max_w)
-            cfg["constraints"]["long_only"] = bool(long_only)
-            cfg["constraints"]["cash_buffer"] = float(cash_buffer)
-            CFG_PATH.write_text(yaml.safe_dump(cfg, sort_keys=False))
-            st.success("Saved locally. Re-run Optimize / Walkforward.")
+        with st.expander("Advanced costs (optional)", expanded=False):
+            commission_bps = st.slider(
+                "Commission (bps)",
+                0.0, 25.0,
+                float(cur_costs.get("commission_bps", 1.0)),
+                0.5,
+                key="commission_bps_slider",
+            )
+            slippage_bps = st.slider(
+                "Slippage (bps)",
+                0.0, 25.0,
+                float(cur_costs.get("slippage_bps", 1.0)),
+                0.5,
+                key="slippage_bps_slider",
+            )
+
+        submitted_settings = st.form_submit_button("Save Settings")
+
+    if submitted_settings:
+        payload = {
+            "universe": [s.strip() for s in tickers_text.split(",") if s.strip()],
+            "max_weight": float(max_w),
+            "long_only": bool(long_only),
+            "cash_buffer": float(cash_buffer),
+        }
+        # costs are optional; include if user touched them
+        payload_costs = {
+            "commission_bps": float(commission_bps),
+            "slippage_bps": float(slippage_bps),
+        }
+
+        try:
+            if USE_API:
+                # update core constraints/universe
+                r = requests.post(f"{API_BASE}/config", json=payload, timeout=10)
+                r.raise_for_status()
+                # merge costs into YAML locally then push? Keep simple: write locally
+                cfg.setdefault("costs", {})
+                cfg["costs"].update(payload_costs)
+                CFG_PATH.write_text(yaml.safe_dump(cfg, sort_keys=False))
+                st.success("Saved via API (core) + YAML (costs). Re-run a stage to apply.")
+            else:
+                # local YAML only
+                cfg.setdefault("universe", {})
+                cfg["universe"]["equities"] = payload["universe"]
+                cfg.setdefault("constraints", {})
+                cfg["constraints"]["max_weight"] = payload["max_weight"]
+                cfg["constraints"]["long_only"] = payload["long_only"]
+                cfg["constraints"]["cash_buffer"] = payload["cash_buffer"]
+                cfg.setdefault("costs", {})
+                cfg["costs"].update(payload_costs)
+                CFG_PATH.write_text(yaml.safe_dump(cfg, sort_keys=False))
+                st.success("Saved to configs/default.yaml. Run Optimize / Walkforward to refresh.")
+        except Exception as e:
+            st.error(f"Save failed: {e}")
+
+    # ====== Utilities ======
+    st.markdown("---")
+    if st.button("🧹 Clear cache", use_container_width=True, key="btn_clear_cache"):
+        st.cache_data.clear()
+        st.success("Streamlit cache cleared.")
+
+    # ====== Saved Strategies (optional API) ======
+    st.markdown("### 💾 Saved Strategies")
+    name = st.text_input("Strategy name", key="saved_name")
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        if st.button("Save", use_container_width=True, key="btn_save_strategy"):
+            if not name:
+                st.warning("Enter a name.")
+            else:
+                try:
+                    if USE_API:
+                        requests.post(
+                            f"{API_BASE}/strategies",
+                            json={
+                                "name": name,
+                                "universe": [s.strip() for s in st.session_state.get("universe_text_input","").split(",") if s.strip()],
+                                "max_weight": float(st.session_state.get("max_w_slider", 0.3)),
+                                "long_only": bool(st.session_state.get("long_only_chk", True)),
+                                "cash_buffer": float(st.session_state.get("cash_buf_slider", 0.0)),
+                            },
+                            timeout=10,
+                        ).raise_for_status()
+                        st.success(f"Saved '{name}' to API.")
+                    else:
+                        st.info("API mode off; not persisted to DB. (YAML already saved above.)")
+                except Exception as e:
+                    st.error(f"Save failed: {e}")
+    with col_s2:
+        if USE_API and st.button("Load", use_container_width=True, key="btn_load_strategy"):
+            try:
+                r = requests.get(f"{API_BASE}/strategies/{name}", timeout=5)
+                r.raise_for_status()
+                item = r.json().get("item", {})
+                # update YAML locally so rest of app sees it
+                cfg.setdefault("universe", {})
+                cfg["universe"]["equities"] = item.get("universe", [])
+                cfg.setdefault("constraints", {})
+                cfg["constraints"]["max_weight"] = float(item.get("max_weight", 0.3))
+                cfg["constraints"]["long_only"] = bool(item.get("long_only", True))
+                cfg["constraints"]["cash_buffer"] = float(item.get("cash_buffer", 0.0))
+                CFG_PATH.write_text(yaml.safe_dump(cfg, sort_keys=False))
+                st.success(f"Loaded '{name}'. Re-open sidebar to see new defaults.")
+            except Exception as e:
+                st.error(f"Load failed: {e}")
 
 def load_latest_weights_df():
     import pandas as pd
@@ -334,82 +417,132 @@ with ts_cols[2]:
     st.write("**latest_weights.csv**")
     st.write(fmt_ts(PROC / "latest_weights.csv"))
 
+# ---------- Page title & tabs ----------
+st.title("📈 Multi-Asset Portfolio Optimizer (Free Tier)")
+
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["Overview", "Models", "Backtest", "Stress", "Signals", "Attribution"]
+)
+
+# ----- helpers for loading & metrics -----
+from math import sqrt
+
+TRADING_DAYS = 252
+
+def _safe_read_csv(path: Path, **kwargs):
+    if not path.exists() or path.stat().st_size == 0:
+        return None
+    return pd.read_csv(path, **kwargs)
+
+def _compute_metrics_from_eq(eq: pd.Series) -> dict:
+    """eq is an equity curve indexed by date, starting ~1.0"""
+    if eq is None or eq.empty or len(eq) < 2:
+        return {"CAGR": 0.0, "Vol": 0.0, "Sharpe": 0.0, "Sortino": 0.0, "MaxDD": 0.0}
+    r = np.log(eq).diff().dropna()
+    cagr = float(eq.iloc[-1] ** (TRADING_DAYS / len(eq)) - 1.0)
+    vol  = float(np.sqrt(TRADING_DAYS) * r.std(ddof=0))
+    downside = r[r < 0]
+    sortino = float((r.mean() * TRADING_DAYS) / (downside.std(ddof=0) * np.sqrt(TRADING_DAYS))) if not downside.empty and downside.std(ddof=0) > 0 else 0.0
+    sharpe = float((r.mean() * TRADING_DAYS) / vol) if vol > 0 else 0.0
+    # max drawdown
+    roll_max = eq.cummax()
+    dd = (eq / roll_max) - 1.0
+    maxdd = float(dd.min()) if not dd.empty else 0.0
+    return {"CAGR": cagr, "Vol": vol, "Sharpe": sharpe, "Sortino": sortino, "MaxDD": maxdd}
+
+def _fmt_pct(x): 
+    try: return f"{x:.2%}"
+    except: return "—"
+
 with tab1:
     st.subheader("Latest Portfolio Weights")
-    w = cached_load_df(str(PROC / "latest_weights.csv"))
-    if w is not None and not w.empty:
-        # ensure numeric for pretty formatting (ignore non-numeric safely)
-        w_fmt = w.apply(pd.to_numeric, errors="ignore").copy()
-        st.dataframe(
-            w_fmt.style.format("{:.2%}", na_rep="—"),
-            use_container_width=True
-        )
-        st.download_button(
-            "⬇️ Download Weights CSV",
-            data=w.to_csv().encode(),
-            file_name="latest_weights.csv",
-        )
+
+    w_path  = PROC / "latest_weights.csv"
+    kpi_path = PROC / "metrics_by_model.csv"
+    eq_path = PROC / "equity_curves.csv"
+
+    w = _safe_read_csv(w_path, index_col=0)
+    if w is not None:
+        # model select for the summary
+        models = list(w.columns)
+        sel_model = st.selectbox("Model for summary", models, index=0, key="model_overview")
+
+        w_fmt = w.copy()
+        for c in w_fmt.columns:
+            w_fmt[c] = pd.to_numeric(w_fmt[c], errors="coerce")
+        st.dataframe(w_fmt.style.format("{:.2%}"), use_container_width=True)
+        st.download_button("Download Weights CSV", data=w.to_csv().encode(), file_name="latest_weights.csv")
     else:
-        st.info("No weights yet. Run the pipeline (Optimize / Walkforward).")
+        st.info("No weights yet. Run the pipeline.")
+        sel_model = None
 
     st.markdown("### Performance summary")
-    m = cached_load_df(str(PROC / "latest_metrics.csv"))
-    if m is not None and not m.empty:
-        # normalize to {metric: value}
-        if m.shape[1] == 1:
-            m = m.rename(columns={m.columns[0]: "value"})
-            metrics = pd.to_numeric(m["value"], errors="coerce").fillna(0.0).to_dict()
-        else:
-            # assume 2 cols metric,value
-            metrics = dict(
-                zip(
-                    m.iloc[:, 0].astype(str),
-                    pd.to_numeric(m.iloc[:, 1], errors="coerce").fillna(0.0),
-                )
-            )
 
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("CAGR", f"{metrics.get('CAGR', 0):.2%}")
-        col2.metric("Volatility", f"{metrics.get('Vol', 0):.2%}")
-        col3.metric("Sharpe", f"{metrics.get('Sharpe', 0):.2f}")
-        col4.metric("Sortino", f"{metrics.get('Sortino', 0):.2f}")
-        col5.metric("Max Drawdown", f"{metrics.get('MaxDD', 0):.2%}")
-        st.download_button(
-            "⬇️ Download Metrics CSV",
-            data=m.to_csv().encode(),
-            file_name="latest_metrics.csv",
-        )
-    else:
-        st.info("No backtest metrics yet. Run Backtest.")
+    # Prefer metrics_by_model; fall back to computing from equity curve
+    metrics = None
+    kdf = _safe_read_csv(kpi_path, index_col=0)
+    if sel_model and kdf is not None and sel_model in kdf.index:
+        row = kdf.loc[sel_model]
+        metrics = {
+            "CAGR":  float(pd.to_numeric(row.get("CAGR", 0), errors="coerce") or 0),
+            "Vol":   float(pd.to_numeric(row.get("Vol", 0), errors="coerce") or 0),
+            "Sharpe":float(pd.to_numeric(row.get("Sharpe", 0), errors="coerce") or 0),
+            "Sortino":float(pd.to_numeric(row.get("Sortino", 0), errors="coerce") or 0),
+            "MaxDD": float(pd.to_numeric(row.get("MaxDD", 0), errors="coerce") or 0),
+        }
+    elif sel_model:
+        # compute from equity curve
+        eq = _safe_read_csv(eq_path, index_col=0, parse_dates=True)
+        if eq is not None and sel_model in eq.columns:
+            metrics = _compute_metrics_from_eq(eq[sel_model])
 
-# ---------- Models ----------
+    if metrics is None:
+        metrics = {"CAGR":0.0,"Vol":0.0,"Sharpe":0.0,"Sortino":0.0,"MaxDD":0.0}
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("CAGR",    _fmt_pct(metrics["CAGR"]))
+    c2.metric("Volatility", _fmt_pct(metrics["Vol"]))
+    c3.metric("Sharpe",  f"{metrics['Sharpe']:.2f}")
+    c4.metric("Sortino", f"{metrics['Sortino']:.2f}")
+    c5.metric("Max Drawdown", _fmt_pct(metrics["MaxDD"]))
+
+    if kdf is not None:
+        st.download_button("Download Metrics CSV", data=kdf.to_csv().encode(), file_name="metrics_by_model.csv")
+
+# ---------- Models (Per-Model KPIs + Curves) ----------
 with tab2:
     st.subheader("Per-Model KPIs")
     k = cached_load_df(str(PROC / "metrics_by_model.csv"))
     if k is not None and not k.empty:
+        # Safely coerce to numeric (no FutureWarning)
         k_fmt = k.copy()
-        # numeric convert with care
-        for c in k.columns:
-            k_fmt[c] = pd.to_numeric(k_fmt[c], errors="ignore")
-        sty = k_fmt.style
+        for c in k_fmt.columns:
+            k_fmt[c] = pd.to_numeric(k_fmt[c], errors="coerce")
+
         pct_cols = [c for c in ["CAGR", "Vol", "MaxDD"] if c in k_fmt.columns]
         num_cols = [c for c in ["Sharpe", "Sortino"] if c in k_fmt.columns]
+
+        sty = k_fmt.style
         if pct_cols:
             sty = sty.format("{:.2%}", subset=pct_cols, na_rep="—")
-        for c in num_cols:
-            sty = sty.format("{:.2f}", subset=[c], na_rep="—")
+        if num_cols:
+            for c in num_cols:
+                sty = sty.format("{:.2f}", subset=[c], na_rep="—")
+
         st.dataframe(sty, use_container_width=True)
-        st.download_button("⬇️ Download KPIs", data=k.to_csv().encode(), file_name="metrics_by_model.csv")
+        st.download_button("⬇️ Download KPIs",
+                           data=k.to_csv().encode(),
+                           file_name="metrics_by_model.csv")
     else:
         st.info("Run Walkforward to compute per-model KPIs.")
 
     st.markdown("### Equity Curves")
     eq = cached_load_df(str(PROC / "equity_curves.csv"), ts=True)
     if eq is not None and not eq.empty:
-        # optional model filter
         models = list(eq.columns)
         chosen = st.multiselect("Select curves to display", models, default=models)
         show = eq[chosen] if chosen else eq
+
         st.line_chart(show, use_container_width=True)
 
         st.markdown("#### Drawdowns")
@@ -417,10 +550,11 @@ with tab2:
         st.line_chart(dd, use_container_width=True)
         st.caption("Drawdown = Equity / Running Max − 1")
 
-        st.download_button("⬇️ Download Equity Curves", data=eq.to_csv().encode(), file_name="equity_curves.csv")
+        st.download_button("⬇️ Download Equity Curves",
+                           data=eq.to_csv().encode(),
+                           file_name="equity_curves.csv")
     else:
         st.info("Run Walkforward to build equity curves.")
-
 
 # ---------- Backtest ----------
 with tab3:
@@ -434,21 +568,32 @@ with tab3:
             models = sorted(set(wt_df.columns.get_level_values(0)))
             model = st.selectbox("Model", models, index=0, key="model_backtest")
             slice_df = wt_df[model].copy()
-            assets = st.multiselect("Filter assets", slice_df.columns.tolist(), default=slice_df.columns.tolist())
+            assets = st.multiselect("Filter assets",
+                                    slice_df.columns.tolist(),
+                                    default=slice_df.columns.tolist())
             plot_df = slice_df[assets] if assets else slice_df
         else:
-            # fallback: no MultiIndex → show all cols
+            # Fallback: no MultiIndex → show all cols
             plot_df = wt_df.copy()
-            assets = st.multiselect("Filter assets", plot_df.columns.tolist(), default=plot_df.columns.tolist())
+            assets = st.multiselect("Filter assets",
+                                    plot_df.columns.tolist(),
+                                    default=plot_df.columns.tolist())
             plot_df = plot_df[assets] if assets else plot_df
 
         st.area_chart(plot_df, use_container_width=True)
         st.caption("Table shows the last 24 months of per-asset weights.")
-        tail_fmt = plot_df.tail(24).apply(pd.to_numeric, errors="ignore")
-        st.dataframe(tail_fmt.style.format("{:.2%}", na_rep="—"), use_container_width=True)
+
+        # Safely coerce to numeric for formatting (no FutureWarning)
+        tail = plot_df.tail(24).copy()
+        for c in tail.columns:
+            tail[c] = pd.to_numeric(tail[c], errors="coerce")
+
+        st.dataframe(tail.style.format("{:.2%}", na_rep="—"),
+                     use_container_width=True)
+
         st.download_button("⬇️ Download selected model weights",
                            data=plot_df.to_csv().encode(),
-                           file_name=f"weights_timeseries_selected.csv")
+                           file_name="weights_timeseries_selected.csv")
 
 
 # ---------- Stress ----------
@@ -666,7 +811,7 @@ def api_delete_strat(name: str):
     return r.json()
 
 # compose current settings from the form’s last values
-current_universe = [s.strip() for s in tickers_str.split(",") if s.strip()]
+current_universe = [s.strip() for s in tickers_text.split(",") if s.strip()]
 current_payload = {
     "name": "",  # filled on save
     "universe": current_universe,
@@ -724,3 +869,4 @@ if USE_API:
     if st.sidebar.button("Run All for current strategy"):
         api_post("/run/all")  # your server already uses the YAML it manages
         st.sidebar.success("Run submitted. Refresh in a moment.")
+
