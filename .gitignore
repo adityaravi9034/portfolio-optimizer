@@ -21,3 +21,15 @@ __pycache__/
 # Cache
 *.log
 *.tmp
+
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+.DS_Store
+.env
+data/paper_trading/

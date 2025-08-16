@@ -13,6 +13,7 @@ universe:
   - XLB
   - XLY
   - XLP
+  bonds:
   - IEF
   - TLT
   - LQD
@@ -20,16 +21,93 @@ universe:
   - SHY
   - TIP
   - BNDX
+  commodities:
   - GLD
   - SLV
   - DBC
   - USO
+  crypto:
   - BTC-USD
   - ETH-USD
+data:
+  provider: yahoo
+  price_field: Adj Close
+  business_days: true
+  drop_nas: true
+  use_alpha_vantage: false
+  alpha_vantage_function: TIME_SERIES_DAILY_ADJUSTED
+  alpha_vantage_api_key: ''
+  fred_api_key: ''
+  fred_series:
+    CPI: CPIAUCSL
+    GDP: GDPC1
+    UNRATE: UNRATE
+    DGS3MO: DGS3MO
+    DGS2: DGS2
+    DGS10: DGS10
+    PCE: PCE
+    FedFunds: FEDFUNDS
+    VIX: VIXCLS
+    LFPR: CIVPART
+lookbacks:
+  rolling_train_days: 756
+  step_days: 21
+  rebalance_days: 21
+  returns_days: 126
+  vol_days: 252
 constraints:
-  max_weight: 0.55
+  max_weight: 0.25
   long_only: true
-  cash_buffer: 0.1
+  cash_buffer: 0.02
+  max_turnover: 0.3
+  leverage_limit: 1.0
 costs:
-  commission_bps: 14.0
-  slippage_bps: 8.5
+  commission_bps: 1.0
+  slippage_bps: 1.0
+models:
+  enabled:
+  - MPT
+  - RiskParity
+  - Factor
+  - ML_XGB
+  mpt:
+    risk_aversion: 10.0
+  risk_parity:
+    method: inverse_vol
+  factor:
+    momentum_weight: 0.7
+  ml_xgb:
+    use_simple_proxy: true
+    turnover_target: 0.3
+sanity_limits:
+  cagr_max: 0.5
+  vol_max: 0.5
+  sharpe_max: 3.5
+signals:
+  round_lots: true
+  lot_size: 1
+  min_trade_weight: 0.002
+  export_blotter: true
+  blotter_path: data/processed/blotter.csv
+ml:
+  model: xgboost
+  xgb:
+    n_estimators: 500
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+    random_state: 42
+  lgbm:
+    n_estimators: 700
+    num_leaves: 31
+    learning_rate: 0.03
+    feature_fraction: 0.8
+    bagging_fraction: 0.8
+    bagging_freq: 3
+    random_state: 42
+  rf:
+    n_estimators: 500
+    max_depth: 10
+    min_samples_leaf: 3
+    random_state: 42

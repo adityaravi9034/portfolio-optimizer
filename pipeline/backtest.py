@@ -5,9 +5,7 @@ import numpy as np
 import pandas as pd
 
 from utils.io import RAW, PROC, load_df, save_df
-from utils.metrics import sharpe, sortino, max_drawdown, apply_costs
-
-TRADING_DAYS = 252
+from utils.metrics import apply_costs, equity_metrics  # <-- use frequency-aware metrics
 
 # ---- Safe defaults for trading costs ----
 DEFAULT_COSTS = {
@@ -20,19 +18,18 @@ def _as_costs(cfg: dict) -> dict:
     if not isinstance(src, dict):
         src = {}
     out = {**DEFAULT_COSTS, **src}
-    # coerce to float
     out["commission_bps"] = float(out.get("commission_bps", DEFAULT_COSTS["commission_bps"]))
     out["slippage_bps"]   = float(out.get("slippage_bps",  DEFAULT_COSTS["slippage_bps"]))
     return out
 
 def backtest(prices: pd.DataFrame, weights_ts: pd.DataFrame, costs: dict):
     """
-    Backtest a panel of weights (columns: (model, asset), index: dates when new weights apply)
+    Backtest a panel of weights (columns: (model, asset), index: rebalance dates)
     against daily prices. Applies trading costs when weights change on rebalance dates.
     Returns:
       - equity_curves (pd.DataFrame): columns per model
-      - turnover (pd.DataFrame): per model turnover time series (optional use)
-      - metrics (dict): per model summary stats
+      - turnover (pd.DataFrame): per model turnover time series
+      - metrics (dict): per model summary stats (frequency-aware)
     """
     # daily log returns of assets
     rets = np.log(prices).diff().fillna(0.0)
@@ -44,7 +41,6 @@ def backtest(prices: pd.DataFrame, weights_ts: pd.DataFrame, costs: dict):
 
     # MultiIndex columns? expected form saved by walkforward: (model, asset)
     if not isinstance(wts.columns, pd.MultiIndex) or wts.columns.nlevels != 2:
-        # fallback: treat as single model called "Model"
         wts.columns = pd.MultiIndex.from_product([["Model"], list(wts.columns)], names=["model","asset"])
 
     models = sorted(set(wts.columns.get_level_values(0)))
@@ -53,7 +49,6 @@ def backtest(prices: pd.DataFrame, weights_ts: pd.DataFrame, costs: dict):
     # Align returns to asset list
     miss = [a for a in assets if a not in rets.columns]
     if miss:
-        # add zero-return columns for any missing asset to keep shape consistent
         for a in miss:
             rets[a] = 0.0
         rets = rets.reindex(columns=sorted(rets.columns))
@@ -63,7 +58,7 @@ def backtest(prices: pd.DataFrame, weights_ts: pd.DataFrame, costs: dict):
     turnover = {m: [] for m in models}
     last_w = {m: np.zeros(len(assets)) for m in models}
 
-    # build a list of rebalance dates; apply period is (prev_date, this_date]
+    # list of rebalance dates; apply period is (prev_date, this_date]
     rb_dates = list(wts.index)
     if len(rb_dates) < 2:
         raise ValueError("weights_timeseries must contain at least two rebalance dates.")
@@ -74,7 +69,7 @@ def backtest(prices: pd.DataFrame, weights_ts: pd.DataFrame, costs: dict):
 
         for m in models:
             target_w = (
-                wts.loc[end, m]  # weights at 'end' for model m (Series indexed by asset)
+                wts.loc[end, m]  # Series indexed by asset
                 .reindex(assets)
                 .fillna(0.0)
                 .values
@@ -89,8 +84,7 @@ def backtest(prices: pd.DataFrame, weights_ts: pd.DataFrame, costs: dict):
             )
             last_w[m] = target_w
 
-            # daily log portfolio returns over (start, end]
-            # (ret_slice is daily log returns; @ target_w gives daily log port return; sum → period log return)
+            # daily log portfolio returns over (start, end]; sum -> period log return
             period_log = float((ret_slice[assets] @ target_w).sum())
             period_mult = float(np.exp(period_log) * factor)
 
@@ -108,21 +102,12 @@ def backtest(prices: pd.DataFrame, weights_ts: pd.DataFrame, costs: dict):
     equity_df = pd.DataFrame(eq_curves)
     turnover_df = pd.DataFrame(to_series)
 
-    # summary metrics per model
+    # summary metrics per model (frequency-aware)
     metrics = {}
     for m in models:
         eq = equity_df[m].dropna()
-        if len(eq) >= 2:
-            r = np.log(eq).diff().dropna()
-            metrics[m] = {
-                "CAGR": float(eq.iloc[-1] ** (TRADING_DAYS / max(1, len(eq))) - 1.0),
-                "Vol": float(np.sqrt(TRADING_DAYS) * r.std(ddof=0)),
-                "Sharpe": float(sharpe(r)),
-                "Sortino": float(sortino(r)),
-                "MaxDD": float(max_drawdown(eq)),
-            }
-        else:
-            metrics[m] = {"CAGR": 0.0, "Vol": 0.0, "Sharpe": 0.0, "Sortino": 0.0, "MaxDD": 0.0}
+        metrics[m] = equity_metrics(eq) if len(eq) >= 2 else \
+            {"CAGR": 0.0, "Vol": 0.0, "Sharpe": 0.0, "Sortino": 0.0, "MaxDD": 0.0}
 
     return equity_df, turnover_df, metrics
 
@@ -135,12 +120,8 @@ if __name__ == "__main__":
     cfg = yaml.safe_load(Path(args.config).read_text())
     costs = _as_costs(cfg)
 
-    # Prices
-    prices = load_df(RAW / "prices.csv")
-
-    # Use month-end schedule consistently (and avoid 'M' deprecation)
-    # (Not strictly necessary here, but keeps alignment similar to walkforward.)
-    prices = prices.asfreq("B").ffill()
+    # Prices (business-day frequency)
+    prices = load_df(RAW / "prices.csv").asfreq("B").ffill()
 
     # Weights time series from walk-forward
     wts_path = PROC / "weights_timeseries.csv"

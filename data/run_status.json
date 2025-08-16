@@ -1,10 +1,10 @@
 {
-  "state": "done",
-  "stage": "complete",
-  "started_at": "2025-08-16T09:12:25.987031+00:00",
-  "updated_at": "2025-08-16T09:12:58.252281+00:00",
-  "progress": 100,
-  "finished_at": "2025-08-16T09:12:58.252055+00:00",
-  "message": "all stages complete",
+  "state": "idle",
+  "stage": null,
+  "started_at": null,
+  "updated_at": "2025-08-16T18:01:44.228722+00:00",
+  "progress": 0,
+  "finished_at": null,
+  "message": null,
   "error": null
 }

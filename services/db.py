@@ -4,11 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
-from typing import List, Optional, Tuple, Iterable, Any
+from typing import List, Optional, Tuple, Dict, Any
 
 DB_PATH = Path("data/app.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
 
 # -----------------------------
 # connection
@@ -25,15 +24,11 @@ def get_conn() -> sqlite3.Connection:
     con.execute("PRAGMA foreign_keys=ON;")
     return con
 
-
 # -----------------------------
 # schema bootstrap / migration
 # -----------------------------
 def _table_info(con: sqlite3.Connection, table: str) -> List[sqlite3.Row]:
     return list(con.execute(f"PRAGMA table_info({table})"))
-
-def _has_column(con: sqlite3.Connection, table: str, col: str) -> bool:
-    return any(r["name"] == col for r in _table_info(con, table))
 
 def _ensure_bootstrap_user(con: sqlite3.Connection) -> int:
     """
@@ -73,7 +68,7 @@ def init_db() -> None:
             """
         )
 
-        # strategies table (desired shape)
+        # strategies (preferred schema)
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS strategies (
@@ -92,20 +87,72 @@ def init_db() -> None:
             """
         )
 
-        # --- migration for legacy installs (no user_id column / UNIQUE(name)) ---
-        # If the table already existed (older format), try to add user_id and backfill.
-        # NOTE: SQLite cannot change UNIQUE easily; we live with legacy UNIQUE(name) if present.
+        # legacy migration: if a preexisting strategies table lacked user_id
         info = _table_info(con, "strategies")
         has_user_id = any(r["name"] == "user_id" for r in info)
         if not has_user_id and info:
-            # legacy table detected → add column & backfill
             con.execute("ALTER TABLE strategies ADD COLUMN user_id INTEGER;")
             bootstrap_uid = _ensure_bootstrap_user(con)
             con.execute("UPDATE strategies SET user_id = ? WHERE user_id IS NULL;", (bootstrap_uid,))
-            # add foreign key (not trivial to add FK/unique retroactively; acceptable for dev)
-            # pragma foreign_keys is ON; future inserts will set user_id.
             con.execute("CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);")
 
+# -----------------------------
+# comments schema
+# -----------------------------
+# --- Comments ---------------------------------------------------------
+# --- Comments support ---------------------------------------------------------
+def init_comments() -> None:
+    with get_conn() as con:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy TEXT NOT NULL,
+                author   TEXT NOT NULL,
+                text     TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+def add_comment(strategy: str, author: str, text: str) -> None:
+    # Basic validation to avoid NULL/empty inserts that cause 500s
+    strategy = (strategy or "").strip()
+    author   = (author or "").strip() or "Anonymous"
+    text     = (text or "").strip()
+
+    if not strategy:
+        raise ValueError("strategy required")
+    if not text:
+        raise ValueError("text required")
+
+    with get_conn() as con:
+        con.execute(
+            "INSERT INTO comments(strategy, author, text) VALUES (?,?,?)",
+            (strategy, author, text),
+        )
+
+def list_comments(strategy: str, limit: int = 50) -> list[dict]:
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT strategy, author, text, created_at
+            FROM comments
+            WHERE strategy = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (strategy, int(limit)),
+        ).fetchall()
+        return [
+            {
+                "strategy": r["strategy"],
+                "author": r["author"],
+                "text": r["text"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
 
 # -----------------------------
 # dataclasses
@@ -128,7 +175,6 @@ class User:
             api_key=r["api_key"],
         )
 
-
 @dataclass(frozen=True)
 class Strategy:
     user_id: int
@@ -148,7 +194,6 @@ class Strategy:
             long_only=bool(row["long_only"]),
             cash_buffer=float(row["cash_buffer"]),
         )
-
 
 # -----------------------------
 # user helpers (used by /auth)
@@ -186,14 +231,10 @@ def update_user_profile(user_id: int, *, name: Optional[str] = None, org: Option
             (name, org, api_key, user_id),
         )
 
-
 # -----------------------------
 # strategy helpers (scoped)
 # -----------------------------
 def upsert_strategy(s: Strategy) -> None:
-    """
-    Insert or update a strategy owned by user_id.
-    """
     with get_conn() as con:
         con.execute(
             """
@@ -212,7 +253,11 @@ def upsert_strategy(s: Strategy) -> None:
 def get_strategy(user_id: int, name: str) -> Optional[Strategy]:
     with get_conn() as con:
         row = con.execute(
-            "SELECT user_id, name, universe, max_weight, long_only, cash_buffer FROM strategies WHERE user_id = ? AND name = ?",
+            """
+            SELECT user_id, name, universe, max_weight, long_only, cash_buffer
+              FROM strategies
+             WHERE user_id = ? AND name = ?
+            """,
             (user_id, name),
         ).fetchone()
         return Strategy.from_row(row) if row else None
@@ -234,10 +279,8 @@ def delete_strategy(user_id: int, name: str) -> None:
     with get_conn() as con:
         con.execute("DELETE FROM strategies WHERE user_id = ? AND name = ?", (user_id, name))
 
-
 # -----------------------------
 # legacy convenience (non-scoped)
-#   - keep these for any old callers; they map to the bootstrap user.
 # -----------------------------
 def _legacy_user_id() -> int:
     with get_conn() as con:
@@ -258,3 +301,45 @@ def legacy_list_strategies() -> List[Strategy]:
 def legacy_delete_strategy(name: str) -> None:
     uid = _legacy_user_id()
     delete_strategy(uid, name)
+
+# --- versions table -----------------------------------------------------------
+def init_versions() -> None:
+    with get_conn() as con:
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy_name TEXT NOT NULL,
+            author TEXT,
+            note TEXT,
+            yaml TEXT NOT NULL,                 -- full YAML snapshot
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        con.execute("CREATE INDEX IF NOT EXISTS idx_versions_strategy ON strategy_versions(strategy_name, created_at DESC);")
+
+def add_version(strategy_name: str, yaml_text: str, author: str | None, note: str | None) -> int:
+    with get_conn() as con:
+        con.execute(
+            "INSERT INTO strategy_versions(strategy_name, author, note, yaml) VALUES(?,?,?,?)",
+            (strategy_name, author or None, note or None, yaml_text),
+        )
+        return int(con.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
+
+def list_versions(strategy_name: str, limit: int = 20) -> list[dict]:
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT id, strategy_name, author, note, created_at
+            FROM strategy_versions
+            WHERE strategy_name = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (strategy_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+def get_version_yaml(version_id: int) -> str | None:
+    with get_conn() as con:
+        r = con.execute("SELECT yaml FROM strategy_versions WHERE id = ?", (version_id,)).fetchone()
+        return r["yaml"] if r else None
