@@ -2,6 +2,11 @@
 
 An end-to-end **portfolio optimization framework** that combines traditional quantitative finance methods with **machine learning–based return prediction**. The system is designed to support **research, backtesting, and live experimentation** with flexible configuration and a modular architecture.  
 
+[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-312/)  
+[![License](https://img.shields.io/badge/license-Proprietary-red.svg)]() 
+[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)]()  
+[![Contributions](https://img.shields.io/badge/contributions-welcome-orange.svg)]()  
+
 ---
 
 ## 🚀 Project Goals  
@@ -15,39 +20,39 @@ An end-to-end **portfolio optimization framework** that combines traditional qua
 
 ## 🔧 Key Features  
 
-### 1. **Data & Features**  
-- Built-in pipeline to construct return & risk features:  
+### 📊 Data & Features  
+- Automated pipeline to construct return & risk features:  
   - Mean (`feat_mu.csv`)  
   - Volatility (`feat_vol.csv`)  
   - Momentum (6M & 12M)  
   - Macro indicators (VIX, LFPR, etc.)  
 - Configurable **lookback** and **stride** for rolling window construction.  
 
-### 2. **Machine Learning Integration**  
-- Ensemble framework with multiple models:  
-  - **Linear regression** (baseline)  
-  - **Random Forests / Gradient Boosting**  
-  - **XGBoost / LightGBM** (with GPU/OpenMP support)  
-  - Easily extensible to LSTMs or other deep models.  
+### 🤖 Machine Learning Forecasting  
+- **Ensemble framework** with multiple models:  
+  - Linear regression (baseline)  
+  - Random Forests / Gradient Boosting  
+  - XGBoost / LightGBM (with GPU/OpenMP support)  
+  - Extensible to deep models (LSTMs/Transformers).  
 - Model ensembling with **weighted averaging** of predictions.  
 - Feature importance extraction (normalized, per-model, weight-adjusted).  
-- Predictions and importances written to:  
+- Predictions & importances written to:  
   - `data/processed/ml_latest_preds.csv`  
   - `data/processed/ml_feature_importance.csv`  
 
-### 3. **Optimization Engine**  
+### 📈 Optimization Engine  
 - Mean-variance optimization with constraints.  
 - Risk parity & custom allocation strategies.  
 - Integrated with ML forecasts for **predictive optimization**.  
 
-### 4. **Web Dashboard & API**  
+### 🖥️ Web Dashboard & API  
 - Interactive dashboard (`app/dashboard.py`) for insights.  
-- REST endpoints for automation:  
+- REST endpoints:  
   - `GET /ml/preds` → Latest ML forecasts.  
   - `GET /ml/importance` → Feature importance rankings.  
   - `POST /run/optimize` → Trigger optimization pipeline.  
 
-### 5. **Reports & Backtesting**  
+### 📑 Reports & Backtesting  
 - Auto-generated HTML reports in `data/reports/`.  
 - Track optimization runs via `data/run_status.json`.  
 - Logging with run history for reproducibility.  
@@ -72,35 +77,51 @@ portfolio-optimizer-full/
 │   ├── build_features.py
 │   ├── ml_forecast.py   # Ensemble training & prediction
 │   └── optimize.py      # Portfolio optimization
+└── README.md            # Project documentation
 ```
 
 ---
 
-## ⚙️ Usage  
+## ⚙️ Installation  
 
-### 1. Setup Environment  
 ```bash
+git clone https://github.com/adityaravi9034/portfolio-optimizer.git
+cd portfolio-optimizer
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Build Features  
+---
+
+## ▶️ Usage  
+
+### 1. Build Features  
 ```bash
 python -m pipeline.build_features --config configs/default.yaml
 ```
 
-### 3. Run ML Forecasts  
+### 2. Run ML Forecasts  
 ```bash
 python -m pipeline.ml_forecast --config configs/default.yaml
 ```
 
-### 4. Trigger Optimization  
+### 3. Run Optimization  
 ```bash
-curl -X POST http://127.0.0.1:8000/run/optimize
+python -m pipeline.optimize --config configs/default.yaml
 ```
 
-### 5. Fetch Predictions & Importance  
+### 4. Start API Server  
+```bash
+uvicorn api.main:app --reload --port 8000
+```
+
+### 5. Launch Dashboard  
+```bash
+python app/dashboard.py
+```
+
+### 6. Example API Calls  
 ```bash
 curl http://127.0.0.1:8000/ml/preds
 curl http://127.0.0.1:8000/ml/importance
@@ -110,14 +131,14 @@ curl http://127.0.0.1:8000/ml/importance
 
 ## 📊 Example Outputs  
 
-### Predictions (`/ml/preds`)  
+**Predictions (`/ml/preds`)**  
 | Asset   | Pred_21d | Rank |
 |---------|----------|------|
 | ETH-USD | 0.1976   | 0.04 |
 | USO     | 0.0313   | 0.08 |
 | BTC-USD | 0.0234   | 0.12 |
 
-### Feature Importance (`/ml/importance`)  
+**Feature Importance (`/ml/importance`)**  
 | Model | Feature | Importance |
 |-------|---------|------------|
 | xgb   | mu      | 0.21       |
@@ -127,14 +148,36 @@ curl http://127.0.0.1:8000/ml/importance
 
 ---
 
-## 🛠️ Next Steps  
-- Add **deep learning (LSTM/Transformers)** into the ensemble.  
-- Enhance **risk-adjusted metrics** in optimization.  
-- Deploy **cloud-native version** (GCP / AWS).  
-- Add **streaming data** for live trading simulation.  
+## ✅ Recent Enhancements  
+- Added **LightGBM** and **XGBoost** models into ensemble forecasting.  
+- Improved **feature importance extraction** across pipelines and tree models.  
+- Integrated model **weights** into importance calculation.  
+- Expanded ensemble architecture for more robust asset ranking.  
+- Modularized ML forecasting pipeline (`pipeline/ml_forecast.py`).  
+
+---
+
+## 🛠️ Roadmap  
+- [ ] Add deep learning models (LSTM, Transformers).  
+- [ ] Expand risk parity and factor-model based portfolio optimization.  
+- [ ] Improve visualization layer with dynamic risk-return plots.  
+- [ ] Deploy full stack on cloud (AWS/GCP/Azure).  
+- [ ] Add live data feeds for trading simulation.  
 
 ---
 
 ## 📌 Notes  
-- Make sure to install **LightGBM** and **XGBoost** with OpenMP enabled (`brew install libomp` on macOS).  
+- Ensure **LightGBM** and **XGBoost** are installed with OpenMP support (`brew install libomp` on macOS).  
 - Auto-generated files (`__pycache__`, `data/processed/`, `data/reports/`) should be excluded with `.gitignore`.  
+
+---
+
+## 📜 License  
+
+This project is licensed under a **Proprietary License**.  
+All rights are reserved by the author (Aditya Ravi).  
+
+You may not use, copy, modify, distribute, or create derivative works of this project without explicit written permission from the author.  
+
+For inquiries regarding licensing, collaborations, or commercial usage, please contact:  
+📧 adityaravu@gmail.com  
