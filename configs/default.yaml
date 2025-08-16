@@ -1,34 +1,9 @@
 universe:
-  equities:
-  - SPY
-  - QQQ
-  - EFA
-  - EEM
-  - IWM
-  - VNQ
-  - XLK
-  - XLF
-  - XLE
-  - XLV
-  - XLB
-  - XLY
-  - XLP
-  bonds:
-  - IEF
-  - TLT
-  - LQD
-  - HYG
-  - SHY
-  - TIP
-  - BNDX
-  commodities:
-  - GLD
-  - SLV
-  - DBC
-  - USO
-  crypto:
-  - BTC-USD
-  - ETH-USD
+  equities: [SPY, QQQ, EFA, EEM, IWM, VNQ, XLK, XLF, XLE, XLV, XLB, XLY, XLP]
+  bonds:    [IEF, TLT, LQD, HYG, SHY, TIP, BNDX]
+  commodities: [GLD, SLV, DBC, USO]
+  crypto:   [BTC-USD, ETH-USD]
+
 data:
   provider: yahoo
   price_field: Adj Close
@@ -49,55 +24,110 @@ data:
     FedFunds: FEDFUNDS
     VIX: VIXCLS
     LFPR: CIVPART
+
 lookbacks:
   rolling_train_days: 756
   step_days: 21
   rebalance_days: 21
   returns_days: 126
   vol_days: 252
+
 constraints:
   max_weight: 0.25
   long_only: true
   cash_buffer: 0.02
   max_turnover: 0.3
   leverage_limit: 1.0
+
 costs:
   commission_bps: 1.0
   slippage_bps: 1.0
+
 models:
   enabled:
-  - MPT
-  - RiskParity
-  - Factor
-  - ML_XGB
+    - MPT
+    - RiskParity
+    - Factor
+    - ML                # UI will show ML column
   mpt:
     risk_aversion: 10.0
   risk_parity:
     method: inverse_vol
   factor:
     momentum_weight: 0.7
-  ml_xgb:
+  ml_ensemble:
     use_simple_proxy: true
     turnover_target: 0.3
+
 sanity_limits:
   cagr_max: 0.5
   vol_max: 0.5
   sharpe_max: 3.5
+
 signals:
   round_lots: true
   lot_size: 1
   min_trade_weight: 0.002
   export_blotter: true
   blotter_path: data/processed/blotter.csv
+
+# =======================
+#   ML ENSEMBLE CONFIG
+# =======================
 ml:
-  model: xgboost
-  xgb:
-    n_estimators: 500
-    max_depth: 6
-    learning_rate: 0.05
-    subsample: 0.9
-    colsample_bytree: 0.9
+  enabled: true
+  horizon_days: 21
+  lookback_days: 756
+  retrain_every_days: 21
+
+  # Use the four feature CSVs we already build.
+  use_separate_feature_files: true
+  mu_path:  data/processed/feat_mu.csv
+  vol_path: data/processed/feat_vol.csv
+  m6_path:  data/processed/feat_mom6.csv
+  m12_path: data/processed/feat_mom12.csv
+
+  # Must match the stacked column names our pipeline creates.
+  feature_columns: [mu, vol, m6, m12]
+
+  prices_path: data/raw/prices.csv
+
+  # Outputs consumed by API/UI
+  out_pred_path: data/processed/ml_latest_preds.csv
+  out_imp_path:  data/processed/ml_feature_importance.csv
+
+  # Learners and their ensemble weights
+  models:
+    - name: ridge
+      weight: 0.20
+    - name: random_forest
+      weight: 0.25
+    - name: gradient_boosting
+      weight: 0.25
+    - name: lgbm
+      weight: 0.15
+    - name: xgb
+      weight: 0.15
+
+  # Per-learner params (used only if the learner is listed above)
+  ridge:
+    alpha: 1.0
+    fit_intercept: true
     random_state: 42
+
+  random_forest:
+    n_estimators: 500
+    max_depth: 10
+    min_samples_leaf: 3
+    random_state: 42
+
+  gradient_boosting:
+    n_estimators: 500
+    learning_rate: 0.05
+    max_depth: 3
+    subsample: 0.9
+    random_state: 42
+
   lgbm:
     n_estimators: 700
     num_leaves: 31
@@ -106,8 +136,11 @@ ml:
     bagging_fraction: 0.8
     bagging_freq: 3
     random_state: 42
-  rf:
+
+  xgb:
     n_estimators: 500
-    max_depth: 10
-    min_samples_leaf: 3
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
     random_state: 42

@@ -34,7 +34,7 @@ from app.components.versions import render_versions_panel
 from app.components.frontier import render_frontier
 from app.components.builder import render_dashboard_builder
 from app.components.trading import trading_panel
-from app.components.trading import trading_panel
+from app.components.ml import render_ml_panel
 
 
 # ---------- Theme ----------
@@ -410,6 +410,13 @@ with st.sidebar:
                             st.error(f"Delete failed: {e}")
         else:
             st.info("Enable API mode (set OPTIM_API_URL) to save/share strategies.")
+    if st.button("Run ML", use_container_width=True, key="btn_run_ml", disabled=(not USE_API) or running):
+        try:
+            with st.spinner("Training ensemble & forecasting…"):
+                r = requests.post(f"{API_BASE}/run/ml", timeout=600)
+            st.success("ML complete")
+        except Exception as e:
+            st.error(f"ML failed: {e}")
 
     st.markdown("---")
 
@@ -468,8 +475,8 @@ with ts_cols[2]:
     st.write("**latest_weights.csv**")
     st.write(fmt_ts(PROC / "latest_weights.csv"))
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs(
-    ["Overview", "Models", "Backtest", "Stress", "Signals", "Attribution", "Collab", "Universe","Versions","Frontier","Builder"]
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11,tab12 = st.tabs(
+    ["Overview", "Models", "Backtest", "Stress", "Signals", "Attribution", "Collab", "Universe","Versions","Frontier","Builder","ML"]
 )
 
 
@@ -927,6 +934,9 @@ with tab11:
     st.session_state["api_base"] = API_BASE
     render_dashboard_builder(key_prefix="builder_main")
 
+
+with tab12:
+    render_ml_panel(api_base=API_BASE, use_api=USE_API, root=ROOT, key_prefix="ml_main")
 
 # ---------- Optional API: one-click run using managed YAML ----------
 if USE_API:

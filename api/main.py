@@ -521,14 +521,17 @@ def get_report(relpath: str):
     p = _safe_report_path(relpath)
     return HTMLResponse(p.read_text(encoding="utf-8"))
 
+from api import ml as ml_router
+app.include_router(ml_router.router)
 app.include_router(router_strats)    # /strategies
 app.include_router(router_reports)   # /report/*# -----------------------------------------------------------------------------
 # Stage definitions & runners
 # -----------------------------------------------------------------------------
-STAGES: List[Tuple[str, str]] = [
+# api/main.py
+STAGES = [
     ("fetch",       "pipeline.fetch_market"),
     ("features",    "pipeline.build_features"),
-    ("optimize",    "pipeline.optimize"),
+    ("optimize",    "pipeline.optimize"),     # ML happens here now
     ("walkforward", "pipeline.walkforward"),
     ("stress",      "pipeline.stress"),
     ("backtest",    "pipeline.backtest"),
@@ -867,3 +870,16 @@ def _on_startup():
     # …existing status init…
 
 app.include_router(broker_router)
+
+@app.post("/run/ml", response_model=RunResponse)
+def run_ml():
+    write_status(state="running", stage="ml", progress=0, started_at=_now_iso(),
+                 finished_at=None, message=None, error=None)
+    try:
+        _run(_py("pipeline.ml_forecast", "--config", str(CFG_PATH)))
+    except HTTPException as e:
+        write_status(state="error", stage="ml", message=str(e), error=str(e))
+        raise
+    write_status(state="idle", stage="ml", progress=100, finished_at=_now_iso(),
+                 message="ml complete", error=None)
+    return {"ok": True, "message": "ml complete"}
