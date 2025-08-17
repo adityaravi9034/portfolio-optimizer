@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # 📈 Portfolio Optimizer with Machine Learning  
 
 An end-to-end **portfolio optimization framework** that combines traditional quantitative finance methods with **machine learning–based return prediction**. The system is designed to support **research, backtesting, and live experimentation** with flexible configuration and a modular architecture.  
