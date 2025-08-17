@@ -1,5 +1,6 @@
 pandas
 numpy
+scipy
 yfinance
 ccxt
 fredapi
@@ -9,14 +10,17 @@ arch
 statsmodels
 scikit-learn
 xgboost
+lightgbm
 backtrader
 plotly
 matplotlib
+seaborn
 streamlit
 pyyaml
-pydantic
+pydantic>=2
 fastapi
 uvicorn[standard]
-pydantic>=2
-python-dotenv==1.1.1
+python-dotenv==1.0.1
 apscheduler==3.10.4
+tqdm
+joblib
